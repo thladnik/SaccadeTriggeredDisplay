@@ -1,0 +1,326 @@
+"""
+SaccadeTTLTrigger ./main.py
+Copyright (C) 2020 Tim Hladnik
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <http://www.gnu.org/licenses/>.
+"""
+
+import tisgrabber as IC
+import numpy as np
+import time
+import wres
+import multiprocessing as mp
+import ctypes
+import cv2
+
+import algorithm
+import gui
+
+
+################################################################
+### Buffer
+
+
+class BufferDTypes:
+    ### Unsigned integers
+    uint8 = (ctypes.c_uint8, np.uint8)
+    uint16 = (ctypes.c_uint16, np.uint16)
+    uint32 = (ctypes.c_uint32, np.uint32)
+    uint64 = (ctypes.c_uint64, np.uint64)
+    ### Signed integers
+    int8 = (ctypes.c_int8, np.int8)
+    int16 = (ctypes.c_int16, np.int16)
+    int32 = (ctypes.c_int32, np.int32)
+    int64 = (ctypes.c_int64, np.int64)
+    ### Floating point numbers
+    float32 = (ctypes.c_float, np.float32)
+    float64 = (ctypes.c_double, np.float64)
+    ### Misc types
+    dictionary = (dict, )
+
+
+class RingBuffer:
+    """A simple ring buffer model. """
+
+    def __init__(self, buffer_length=1000):
+        self.__dict__['_bufferLength'] = buffer_length
+
+        self.__dict__['_attributeList'] = list()
+        ### Index that points to the record which is currently being updated
+        self.__dict__['_currentIdx'] = manager.Value(ctypes.c_int64, 0)
+
+    def initialize(self):
+        for attr_name in self.__dict__['_attributeList']:
+            shape = self.__dict__['_shape_{}'.format(attr_name)]
+            if shape is None:
+                continue
+
+            data = np.frombuffer(self.__dict__['_dbase_{}'.format(attr_name)], self.__dict__['_dtype_{}'.format(attr_name)][1])
+            if shape != (1,):
+                data = data.reshape((self.length(), *shape))
+            self.__dict__['_data_{}'.format(attr_name)] = data
+
+    def next(self):
+        self.__dict__['_currentIdx'].value += 1
+
+    def index(self):
+        return self.__dict__['_currentIdx'].value
+
+    def length(self):
+        return self.__dict__['_bufferLength']
+
+    def read(self, name, last=1, last_idx=None):
+        """Read **by consumer**: return last complete record(s) (_currentIdx-1)
+        Returns a tuple of (index, record_dataset)
+                        or (indices, record_datasets)
+        """
+        if not(last_idx is None):
+            last = self.index()-last_idx
+
+        ### Set index relative to buffer length
+        list_idx = (self.index()) % self.length()
+
+        ### One record
+        if last == 1:
+            idx_start = list_idx-1
+            idx_end = None
+            idcs = self.index()-1
+
+        ### Multiple record
+        elif last > 1:
+            if last > self.length():
+                raise Exception('Trying to read more records than stored in buffer. '
+                                'Attribute \'{}\''.format(name))
+
+            idx_start = list_idx-last
+            idx_end = list_idx
+
+            idcs = list(range(self.index()-last, self.index()))
+
+        ### No entry: raise exception
+        else:
+            raise Exception('Smallest possible record set size is 1')
+
+        if isinstance(name, str):
+            return idcs, self._read(name, idx_start, idx_end)
+        else:
+            return idcs, {n: self._read(n, idx_start, idx_end) for n in name}
+
+    def _createAttribute(self, attr_name, dtype, shape=None):
+        self.__dict__['_attributeList'].append(attr_name)
+        if shape is None:
+            self.__dict__['_data_{}'.format(attr_name)] = manager.list(self.length() * [None])
+        else:
+            ### *Note to future self*
+            # ALWAYS try to use shared arrays instead of managed lists, etc for stuff like this
+            # Performance GAIN in the particular example of the Camera process pushing
+            # 720x750x3 uint8 images through the buffer is close to _100%_ (DOUBLING of performance)\\ TH 2020-07-16
+            self.__dict__['_dbase_{}'.format(attr_name)] = mp.RawArray(dtype[0], int(np.prod([self.length(), *shape])))
+            self.__dict__['_data_{}'.format(attr_name)] = None
+        self.__dict__['_dtype_{}'.format(attr_name)] = dtype
+        self.__dict__['_shape_{}'.format(attr_name)] = shape
+
+    def _read(self, attr_name, idx_start, idx_end):
+
+        ### Return single record
+        if idx_end is None:
+            return self.__dict__['_data_{}'.format(attr_name)][idx_start]
+
+        ### Return multiple records
+        if idx_start >= 0:
+            return self.__dict__['_data_{}'.format(attr_name)][idx_start:idx_end]
+        else:
+            if self.__dict__['_shape_{}'.format(attr_name)] is None:
+                return self.__dict__['_data_{}'.format(attr_name)][idx_start:] \
+                       + self.__dict__['_data_{}'.format(attr_name)][:idx_end]
+            else:
+                return np.concatenate((self.__dict__['_data_{}'.format(attr_name)][idx_start:],
+                        self.__dict__['_data_{}'.format(attr_name)][:idx_end]), axis=0)
+
+    def __setattr__(self, name, value):
+        if not('_data_{}'.format(name) in self.__dict__):
+            self._createAttribute(name, *value)
+        else:
+            # TODO: add checks?
+            self.__dict__['_data_{}'.format(name)][self.index() % self.length()] = value
+
+    def __getattr__(self, name):
+        """Get current record"""
+        try:
+            return self.__dict__['_data_{}'.format(name)][(self.index()) % self.length()]
+        except:
+            ### Fallback to parent is essential for pickling!
+            super().__getattribute__(name)
+
+
+################################################################
+### Cameras
+
+class CAM_Virtual:
+
+    _models = ['Multi_Fish_Eyes_Cam',
+                'Single_Fish_Eyes_Cam']
+
+    _formats = {'Multi_Fish_Eyes_Cam' : ['RGB8 (752x480)'],
+                'Single_Fish_Eyes_Cam' : ['RGB8 (640x480)']}
+
+    _sampleFile = {'Multi_Fish_Eyes_Cam' : 'Fish_eyes_multiple_fish_30s.avi',
+                   'Single_Fish_Eyes_Cam' : 'Fish_eyes_spontaneous_saccades_40s.avi'}
+
+    res_x = 480
+    res_y = 640
+
+    def __init__(self):
+        self._model = self._models[1]
+        self._format = self._formats[self._models[1]]
+        self.vid = cv2.VideoCapture(self._sampleFile[self._model])
+
+    @classmethod
+    def getModels(cls):
+        return cls._models
+
+    def updateProperty(self, propName, value):
+        pass
+
+    def getFormats(self):
+        return self.__class__._formats[self._model]
+
+    def getImage(self):
+        ret, frame = self.vid.read()
+        if ret:
+            return frame
+        else:
+            self.vid.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            return self.getImage()
+
+class CAM_TIS:
+
+    exposure = 'exposure'
+    gain = 'gain'
+
+    camera_model = 'DMK 23U618 49410244'
+    camera_format = 'Y800 (640x480)'
+    res_x = 480
+    res_y = 640
+
+    def __init__(self):
+        self._device = IC.TIS_CAM()
+
+        print('Available devices:', IC.TIS_CAM().GetDevices())
+        print('Open device {}'.format(self.camera_model))
+        self._device.open(self.camera_model)
+        print('Available formats:', self._device.GetVideoFormats())
+        self._device.SetVideoFormat(self.camera_format)
+
+        ### Disable auto settings
+        self._device.SetPropertySwitch('Gain', 'Auto', 0)
+        self._device.enableCameraAutoProperty(4, 0)  # Disable auto exposure (for REAL)
+
+        ### Enable frame acquisition
+        self._device.StartLive(0)
+
+    def updateProperty(self, propName, value):
+        ### Fetch current exposure
+        currExposure = [0.]
+        self._device.GetPropertyAbsoluteValue('Exposure', 'Value', currExposure)
+        currGain = [0.]
+        self._device.GetPropertyAbsoluteValue('Gain', 'Value', currGain)
+
+        if propName == self.exposure and not(np.isclose(value, currExposure[0] * 1000, atol=0.001)):
+            print('Set exposure from {} to {} ms'.format(currExposure[0] * 1000, value))
+            self._device.SetPropertyAbsoluteValue('Exposure', 'Value', float(value)/1000)
+
+        elif propName == self.gain and not (np.isclose(value, currGain[0], atol=0.001)):
+            print('Set gain from {} to {}'.format(currGain[0], value))
+            self._device.SetPropertyAbsoluteValue('Gain', 'Value', float(value))
+
+
+    def getImage(self):
+        self._device.SnapImage()
+        return self._device.GetImage()
+
+
+if __name__ == '__main__':
+
+    ### Set windows timer precision as high as possible
+    minres, maxres, curres = wres.query_resolution()
+    with wres.set_resolution(maxres):
+
+        # Manager
+        manager = mp.Manager()
+        ### Set up mp communication
+        # Pipe
+        pipein, pipeout = mp.Pipe()
+        ROIs = manager.dict()
+
+        ### Set up camera
+        #camera = CAM_TIS()
+        camera = CAM_Virtual()
+
+        ### Set up buffer
+        buffer = RingBuffer(buffer_length=3000)
+        buffer.time = (BufferDTypes.float64, (1,))
+        buffer.frame = (BufferDTypes.uint8, (camera.res_x, camera.res_y))
+        buffer.le_pos = (BufferDTypes.float64, (1,))
+        buffer.re_pos = (BufferDTypes.float64, (1,))
+        buffer.extracted_rects = (BufferDTypes.dictionary, )
+        #buffer.rois = (BufferDTypes.dictionary, )
+
+
+
+        ### Set up and start GUI process
+        guip = mp.Process(target=gui.MainWindow, name='GUI',
+                          kwargs=dict(pipein=pipein,
+                                      pipeout=pipeout,
+                                      buffer=buffer,
+                                      rois=ROIs))
+        guip.start()
+
+        ### Initialize buffer locally
+        buffer.initialize()
+
+        ### Set up detection algorithm
+        detector = algorithm.EyePosDetectRoutine(buffer, ROIs, camera.res_x, camera.res_y)
+
+        target_fps = 200
+        running = True
+        t_start = time.time()
+        t = 0
+        while running:
+            if pipein.poll():
+                msg = pipein.recv()
+
+                if msg[0] == 99:
+                    running = False
+                    continue
+
+            ### Wait until next frame
+            while time.time() < t+t_start + 1/target_fps:
+                pass
+            t = time.time() - t_start
+
+            ### Grab new frame
+            frame = camera.getImage()
+            buffer.frame = frame[:,:,0]
+            buffer.time = t
+
+            eyePos = detector._compute(frame)
+            #buffer.le_pos = eyePos[0]
+            #buffer.re_pos = eyePos[1]
+            #print(eyePos)
+
+
+
+            ### Advance buffer
+            buffer.next()
