@@ -23,6 +23,7 @@ import wres
 import multiprocessing as mp
 import ctypes
 import cv2
+import pyfirmata
 
 import algorithm
 import gui
@@ -169,6 +170,9 @@ class RingBuffer:
 
 class CAM_Virtual:
 
+    exposure = 'exposure'
+    gain = 'gain'
+
     _models = ['Multi_Fish_Eyes_Cam',
                 'Single_Fish_Eyes_Cam']
 
@@ -251,11 +255,51 @@ class CAM_TIS:
         return self._device.GetImage()
 
 
+def setLEDs(on):
+    ### Reset pins
+    for i, p in pins.items():
+        p.write(on)
+
+def handleComm():
+    if not(pipein.poll()):
+        return
+
+    global running, sacc_trigger_mode, sacc_diff_threshold, target_fps, flash_delay, flash_dur
+
+    msg = pipein.recv()
+
+    if msg[0] == 99:
+        running = False
+    elif msg[0] == 41:
+        print('Set saccade trigger mode to {}'.format(msg[1]))
+        sacc_trigger_mode = msg[1]
+    elif msg[0] == 42:
+        print('Set saccade trigger position difference threshold to {}'.format(msg[1]))
+        sacc_diff_threshold = msg[1]
+    elif msg[0] == 31:
+        print('Set camera exposure to {}ms'.format(msg[1]))
+        camera.updateProperty(camera.exposure, msg[1])
+    elif msg[0] == 32:
+        print('Set camera gain to {}'.format(msg[1]))
+        camera.updateProperty(camera.gain, msg[1])
+    elif msg[0] == 33:
+        print('Set camera target framerate to {}'.format(msg[1]))
+        target_fps = msg[1]
+    elif msg[0] == 21:
+        print('Set flash duration to {}ms'.format(msg[1] * 1000))
+        flash_dur = msg[1]
+    elif msg[0] == 22:
+        print('Set flash delay to {}ms'.format(msg[1] * 1000))
+        flash_delay = msg[1]
+
 if __name__ == '__main__':
 
     ### Set windows timer precision as high as possible
-    minres, maxres, curres = wres.query_resolution()
+    _, maxres, _ = wres.query_resolution()
     with wres.set_resolution(maxres):
+
+        _, _, curres = wres.query_resolution()
+        print('Timing resolution is {}ms'.format(curres/10**4))
 
         # Manager
         manager = mp.Manager()
@@ -275,9 +319,14 @@ if __name__ == '__main__':
         buffer.le_pos = (BufferDTypes.float64, (1,))
         buffer.re_pos = (BufferDTypes.float64, (1,))
         buffer.extracted_rects = (BufferDTypes.dictionary, )
-        #buffer.rois = (BufferDTypes.dictionary, )
 
-
+        ### Set up display (Arduino)
+        board = pyfirmata.Arduino('COM3')
+        pins = dict()
+        pins[0] = board.get_pin('d:6:o')
+        pins[1] = board.get_pin('d:7:o')
+        pins[2] = board.get_pin('d:8:o')
+        pins[3] = board.get_pin('d:9:o')
 
         ### Set up and start GUI process
         guip = mp.Process(target=gui.MainWindow, name='GUI',
@@ -293,34 +342,85 @@ if __name__ == '__main__':
         ### Set up detection algorithm
         detector = algorithm.EyePosDetectRoutine(buffer, ROIs, camera.res_x, camera.res_y)
 
-        target_fps = 200
+        ### Set flash variables
+        flash = False
+        setLEDs(flash)
+
+        flash_start = np.inf
+        flash_dur = None
+        flash_delay = None
+
+        ### Set trigger variables:
+        sacc_trigger_mode = None
+        sacc_diff_threshold = None
+
+
+        target_fps = None
         running = True
+
+        ### Wait for gui to set parameters
+        while flash_delay is None \
+                or flash_delay is None \
+                or sacc_diff_threshold is None \
+                or sacc_trigger_mode is None \
+                or target_fps is None:
+            handleComm()
+
         t_start = time.time()
         t = 0
         while running:
-            if pipein.poll():
-                msg = pipein.recv()
+            handleComm()
 
-                if msg[0] == 99:
-                    running = False
-                    continue
 
             ### Wait until next frame
             while time.time() < t+t_start + 1/target_fps:
                 pass
             t = time.time() - t_start
 
-            ### Grab new frame
+            ### Snap & grab new frame
             frame = camera.getImage()
             buffer.frame = frame[:,:,0]
             buffer.time = t
 
+            ### Do calculation
             eyePos = detector._compute(frame)
-            #buffer.le_pos = eyePos[0]
-            #buffer.re_pos = eyePos[1]
-            #print(eyePos)
 
+            ### AFTER calculation: fetch current positions
+            le_pos_cur = buffer.le_pos
+            re_pos_cur = buffer.re_pos
 
+            ### Fetch previous positions
+            idcs, le_pos_last = buffer.read('le_pos')
+            _, re_pos_last = buffer.read('re_pos')
+
+            ### Determine trigger states
+            # LE
+            if sacc_trigger_mode in ['left', 'both']:
+                le_trigger = np.abs(le_pos_cur - le_pos_last) > sacc_diff_threshold
+            else:
+                le_trigger = False
+            ## RE
+            if sacc_trigger_mode in ['right', 'both']:
+                re_trigger = np.abs(re_pos_cur - re_pos_last) > sacc_diff_threshold
+            else:
+                re_trigger = False
+
+            ### Trigger new flash
+            if not(flash) and (le_trigger or re_trigger):
+                print(sacc_trigger_mode)
+                flash_start = t + flash_delay
+
+            ### Start flash
+            if not(flash) and flash_start <= t:
+                ### Set pins
+                flash = not(flash)
+                setLEDs(flash)
+
+            ### Reset pins
+            if flash and t > (flash_start + flash_delay + flash_dur):
+                flash = not(flash)
+                flash_start = np.inf
+                setLEDs(flash)
 
             ### Advance buffer
             buffer.next()

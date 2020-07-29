@@ -212,6 +212,6 @@ class EyePosDetectRoutine:
         ### Update buffer (Always set)
         self.buffer.extracted_rects = newRect
 
-        self.buffer.le_pos = eyePos[0]
-        self.buffer.re_pos = eyePos[1]
+        self.buffer.le_pos = eyePos[0] / (2 * np.pi) * 360
+        self.buffer.re_pos = eyePos[1] / (2 * np.pi) * 360
 

@@ -264,10 +264,96 @@ class MainWindow(QtWidgets.QMainWindow):
         self.wdgt.layout().addWidget(self.cam_wdgt, 0, 0)
 
         ### Set up inputs
-        self.input_panel = QtWidgets.QWidget()
-        self.wdgt.layout().addWidget(self.input_panel, 0, 1)
-        self.input_panel.setLayout(QtWidgets.QGridLayout())
-        self.input_panel.layout().addWidget(QtWidgets.QLabel('TEEEST'), 0, 0)
+        self.in_panel = QtWidgets.QWidget()
+        self.wdgt.layout().addWidget(self.in_panel, 0, 1)
+        self.in_panel.setLayout(QtWidgets.QVBoxLayout())
+        
+        ### Control panel
+        self.in_panel.ctrl = QtWidgets.QGroupBox('Controls')
+        self.in_panel.ctrl.setLayout(QtWidgets.QGridLayout())
+        self.in_panel.layout().addWidget(self.in_panel.ctrl)
+        
+        ## Exposure
+        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Camera exposure [ms]'), 0, 0)
+        self.in_panel.ctrl.cam_exposure = QtWidgets.QDoubleSpinBox()
+        self.in_panel.ctrl.cam_exposure.setMinimum(0.01)
+        self.in_panel.ctrl.cam_exposure.setMaximum(1000.0)
+        # connect
+        self.in_panel.ctrl.cam_exposure.valueChanged.connect(lambda: self.pipeout.send([31, self.in_panel.ctrl.cam_exposure.value()]))
+        # set
+        self.in_panel.ctrl.cam_exposure.setValue(1.0)
+        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.cam_exposure, 0, 1)
+        ## Gain
+        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Camera gain [au]'), 1, 0)
+        self.in_panel.ctrl.cam_gain = QtWidgets.QDoubleSpinBox()
+        self.in_panel.ctrl.cam_gain.setMinimum(0.01)
+        self.in_panel.ctrl.cam_gain.setMaximum(1000.0)
+        # connect
+        self.in_panel.ctrl.cam_gain.valueChanged.connect(lambda: self.pipeout.send([32, self.in_panel.ctrl.cam_gain.value()]))
+        # set
+        self.in_panel.ctrl.cam_gain.setValue(1.0)
+        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.cam_gain, 1, 1)
+        ## Target FPS
+        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Target FPS [1/s]'), 2, 0)
+        self.in_panel.ctrl.cam_fps = QtWidgets.QSpinBox()
+        self.in_panel.ctrl.cam_fps.setMinimum(1)
+        self.in_panel.ctrl.cam_fps.setMaximum(300)
+        # connect
+        self.in_panel.ctrl.cam_fps.valueChanged.connect(lambda: self.pipeout.send([33, self.in_panel.ctrl.cam_fps.value()]))
+        # set
+        self.in_panel.ctrl.cam_fps.setValue(30)
+        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.cam_fps, 2, 1)
+        ## Flash duration
+        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Flash duration [ms]'), 3, 0)
+        self.in_panel.ctrl.flash_dur = QtWidgets.QDoubleSpinBox()
+        self.in_panel.ctrl.flash_dur.setMinimum(1)
+        self.in_panel.ctrl.flash_dur.setMaximum(5000.0)
+        # connect
+        self.in_panel.ctrl.flash_dur.valueChanged.connect(lambda: self.pipeout.send([21, self.in_panel.ctrl.flash_dur.value() / 1000]))
+        # set
+        self.in_panel.ctrl.flash_dur.setValue(100.0)
+        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.flash_dur, 3, 1)
+        ## Flash delay
+        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Flash delay [ms]'), 4, 0)
+        self.in_panel.ctrl.flash_delay = QtWidgets.QDoubleSpinBox()
+        self.in_panel.ctrl.flash_delay.setMinimum(1)
+        self.in_panel.ctrl.flash_delay.setMaximum(5000.0)
+        # connect
+        self.in_panel.ctrl.flash_delay.valueChanged.connect(lambda: self.pipeout.send([22, self.in_panel.ctrl.flash_delay.value() / 1000]))
+        # set
+        self.in_panel.ctrl.flash_delay.setValue(50.0)
+        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.flash_delay, 4, 1)
+
+
+        ### Saccade trigger
+        self.in_panel.sactrig = QtWidgets.QGroupBox('Saccade trigger')
+        self.in_panel.sactrig.setLayout(QtWidgets.QGridLayout())
+        self.in_panel.layout().addWidget(self.in_panel.sactrig)
+
+        ## Mode
+        self.in_panel.sactrig.eye_mode = QtWidgets.QComboBox()
+        # connect
+        self.in_panel.sactrig.eye_mode.currentTextChanged.connect(lambda: self.pipeout.send([41, self.in_panel.sactrig.eye_mode.currentText()]))
+        # set
+        self.in_panel.sactrig.eye_mode.addItems(['left', 'right', 'both'])
+        self.in_panel.sactrig.layout().addWidget(QtWidgets.QLabel('Saccade trigger mode'), 0, 0)
+        self.in_panel.sactrig.layout().addWidget(self.in_panel.sactrig.eye_mode, 0, 1)
+
+        ## Position diff. threshold
+        self.in_panel.sactrig.layout().addWidget(QtWidgets.QLabel('dPosition threshold [deg]'), 1, 0)
+        self.in_panel.sactrig.thresh = QtWidgets.QDoubleSpinBox()
+        self.in_panel.sactrig.thresh.setMinimum(1)
+        self.in_panel.sactrig.thresh.setMaximum(100.0)
+        # connect
+        self.in_panel.sactrig.thresh.valueChanged.connect(lambda: self.pipeout.send([42, self.in_panel.sactrig.thresh.value()]))
+        # set
+        self.in_panel.sactrig.thresh.setValue(20.0)
+        self.in_panel.sactrig.layout().addWidget(self.in_panel.sactrig.thresh, 1, 1)
+
+
+        ### Add spacer
+        vSpacer = QtWidgets.QSpacerItem(1,1,QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
+        self.in_panel.layout().addItem(vSpacer)
 
         ### Set up plotter
         self.plot_wdgt = Plotter(self)
