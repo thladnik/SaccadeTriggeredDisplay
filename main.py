@@ -313,12 +313,18 @@ if __name__ == '__main__':
         camera = CAM_Virtual()
 
         ### Set up buffer
-        buffer = RingBuffer(buffer_length=3000)
-        buffer.time = (BufferDTypes.float64, (1,))
-        buffer.frame = (BufferDTypes.uint8, (camera.res_x, camera.res_y))
-        buffer.le_pos = (BufferDTypes.float64, (1,))
-        buffer.re_pos = (BufferDTypes.float64, (1,))
-        buffer.extracted_rects = (BufferDTypes.dictionary, )
+        # Camera
+        cbuffer = RingBuffer(buffer_length=3000)
+        cbuffer.time = (BufferDTypes.float64, (1,))
+        cbuffer.frame = (BufferDTypes.uint8, (camera.res_x, camera.res_y))
+        cbuffer.le_pos = (BufferDTypes.float64, (1,))
+        cbuffer.re_pos = (BufferDTypes.float64, (1,))
+        cbuffer.extracted_rects = (BufferDTypes.dictionary,)
+        cbuffer.trigger_sig = (BufferDTypes.uint8, (1,))
+        # Display
+        dbuffer = RingBuffer(buffer_length=10**7)
+        dbuffer.time = (BufferDTypes.float64, (1,))
+        dbuffer.flash_level = (BufferDTypes.uint8, (1,))
 
         ### Set up display (Arduino)
         board = pyfirmata.Arduino('COM3')
@@ -332,15 +338,17 @@ if __name__ == '__main__':
         guip = mp.Process(target=gui.MainWindow, name='GUI',
                           kwargs=dict(pipein=pipein,
                                       pipeout=pipeout,
-                                      buffer=buffer,
+                                      cbuffer=cbuffer,
+                                      dbuffer=dbuffer,
                                       rois=ROIs))
         guip.start()
 
-        ### Initialize buffer locally
-        buffer.initialize()
+        ### Initialize buffers locally
+        cbuffer.initialize()
+        dbuffer.initialize()
 
         ### Set up detection algorithm
-        detector = algorithm.EyePosDetectRoutine(buffer, ROIs, camera.res_x, camera.res_y)
+        detector = algorithm.EyePosDetectRoutine(cbuffer, ROIs, camera.res_x, camera.res_y)
 
         ### Set flash variables
         flash = False
@@ -354,7 +362,7 @@ if __name__ == '__main__':
         sacc_trigger_mode = None
         sacc_diff_threshold = None
 
-
+        target_display_rate = 1000
         target_fps = None
         running = True
 
@@ -368,47 +376,66 @@ if __name__ == '__main__':
 
         t_start = time.time()
         t = 0
+        last_ctime = -np.inf
+        last_dtime = -np.inf
         while running:
+
+            ### Handle all communication
             handleComm()
 
-
-            ### Wait until next frame
-            while time.time() < t+t_start + 1/target_fps:
-                pass
+            ### Set time for current interation
             t = time.time() - t_start
 
-            ### Snap & grab new frame
-            frame = camera.getImage()
-            buffer.frame = frame[:,:,0]
-            buffer.time = t
+            if not(t >= last_dtime + 1/target_display_rate):
+                continue
 
-            ### Do calculation
-            eyePos = detector._compute(frame)
+            ################################
+            ### Snap, grab and process new frame
+            if t >= last_ctime + 1/target_fps:
 
-            ### AFTER calculation: fetch current positions
-            le_pos_cur = buffer.le_pos
-            re_pos_cur = buffer.re_pos
+                frame = camera.getImage()
+                cbuffer.frame = frame[:, :, 0]
+                cbuffer.time = t
 
-            ### Fetch previous positions
-            idcs, le_pos_last = buffer.read('le_pos')
-            _, re_pos_last = buffer.read('re_pos')
+                ### Do calculation
+                eyePos = detector._compute(frame)
 
-            ### Determine trigger states
-            # LE
-            if sacc_trigger_mode in ['left', 'both']:
-                le_trigger = np.abs(le_pos_cur - le_pos_last) > sacc_diff_threshold
-            else:
-                le_trigger = False
-            ## RE
-            if sacc_trigger_mode in ['right', 'both']:
-                re_trigger = np.abs(re_pos_cur - re_pos_last) > sacc_diff_threshold
-            else:
-                re_trigger = False
+                ### AFTER calculation: fetch current positions
+                le_pos_cur = cbuffer.le_pos
+                re_pos_cur = cbuffer.re_pos
 
-            ### Trigger new flash
-            if not(flash) and (le_trigger or re_trigger):
-                print(sacc_trigger_mode)
-                flash_start = t + flash_delay
+                ### Fetch previous positions
+                idcs, le_pos_last = cbuffer.read('le_pos')
+                _, re_pos_last = cbuffer.read('re_pos')
+
+                ### Determine trigger states
+                # LE
+                if sacc_trigger_mode in ['left', 'both']:
+                    le_trigger = np.abs(le_pos_cur - le_pos_last) > sacc_diff_threshold
+                else:
+                    le_trigger = False
+                ## RE
+                if sacc_trigger_mode in ['right', 'both']:
+                    re_trigger = np.abs(re_pos_cur - re_pos_last) > sacc_diff_threshold
+                else:
+                    re_trigger = False
+
+                ### Trigger
+                if not(flash) and (le_trigger or re_trigger):
+                    flash_start = t + flash_delay
+                    cbuffer.trigger_sig = 1
+                else:
+                    cbuffer.trigger_sig = 0
+
+                ### Set new last ctime
+                last_ctime = t
+
+                ### Advance buffer
+                cbuffer.next()
+
+
+            ################################
+            ### Display
 
             ### Start flash
             if not(flash) and flash_start <= t:
@@ -422,5 +449,12 @@ if __name__ == '__main__':
                 flash_start = np.inf
                 setLEDs(flash)
 
+            ### Flash
+            dbuffer.time = t
+            dbuffer.flash_level = int(flash)
+
+            ### Set new last dtime
+            last_dtime = t
+
             ### Advance buffer
-            buffer.next()
+            dbuffer.next()

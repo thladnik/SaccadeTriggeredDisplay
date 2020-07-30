@@ -6,7 +6,8 @@ import time
 import helper
 
 
-Buffer = None
+cBuffer = None
+dBuffer = None
 ROIs = None
 
 ################################################################
@@ -35,8 +36,8 @@ class EyePositionDetector(QtWidgets.QWidget):
         #if t <= self.last_frametime:
         #    return
 
-        idx, frame = Buffer.read('frame')
-        idx, times = Buffer.read('time', last=2)
+        idx, frame = cBuffer.read('frame')
+        idx, times = cBuffer.read('time', last=2)
         frametime = times[-1] - times[-2]
         self.graphicsWidget.imageItem.setImage(np.rot90(frame, -1))
         self.graphicsWidget.textItem_fps.setText('FPS: {:.2f}'.format(1/frametime))
@@ -143,7 +144,7 @@ class EyePositionDetector(QtWidgets.QWidget):
                 self.newMarker = None
 
         def updateRectSubplots(self):
-            idx, rects = Buffer.read('extracted_rects')
+            idx, rects = cBuffer.read('extracted_rects')
 
             if rects is None:
                 return
@@ -204,31 +205,49 @@ class Plotter(pg.PlotWidget):
         self.main = main
 
         self.le = pg.PlotDataItem(name='Left eye position [deg]', pen=pg.mkPen(color=(0,0,255,255),width=2))
-        self.le_pos = list()
         self.addItem(self.le)
 
         self.re = pg.PlotDataItem(name='Right eye position [deg]', pen=pg.mkPen(color=(255,0,0,255),width=2))
-        self.re_pos = list()
         self.addItem(self.re)
+
+        self.trigger = pg.PlotDataItem(name='Trigger', pen=pg.mkPen(color=(255,255,0,255),width=2))
+        self.addItem(self.trigger)
+
+        self.flash = pg.PlotDataItem(name='Flash', pen=pg.mkPen(color=(255,128,0,255),width=2))
+        self.addItem(self.flash)
+
 
         self.legend = pg.LegendItem(offset=(40,0.9))
         #self.plotItem.addLegend()
         self.legend.addItem(self.le, self.le.name())
         self.legend.addItem(self.re, self.re.name())
+        self.legend.addItem(self.trigger, self.trigger.name())
+        self.legend.addItem(self.flash, self.flash.name())
         self.legend.setParentItem(self.plotItem)
 
     def updatePlot(self):
 
         #if not(bool(self.main.eyePositions_left)) or not(bool(self.main.eyePositions_right)):
         #    return
-        last = 2000
-        _, times = Buffer.read('time', last=last)
-        _, le = Buffer.read('le_pos', last=last)
-        _, re = Buffer.read('re_pos', last=last)
+        last_c = 2000
+        _, ctimes = cBuffer.read('time', last=last_c)
+        _, le = cBuffer.read('le_pos', last=last_c)
+        _, re = cBuffer.read('re_pos', last=last_c)
+        _, trigsig = cBuffer.read('trigger_sig', last=last_c)
+        last_d = 5* 10**4
+        _, dtimes = dBuffer.read('time', last=last_d)
+        _, flashlvl = dBuffer.read('flash_level', last=last_d)
 
+        region = dtimes >= ctimes[0]
+        dtimes = dtimes[region][::5]
+        flashlvl = flashlvl[region][::5]
 
-        self.le.setData(times, le)
-        self.re.setData(times, re)
+        scale = max(np.max(le), np.max(re))/2
+
+        self.le.setData(ctimes, le)
+        self.re.setData(ctimes, re)
+        self.trigger.setData(ctimes, trigsig * scale)
+        self.flash.setData(dtimes, flashlvl * scale)
 
 
 ################################################################
@@ -236,22 +255,25 @@ class Plotter(pg.PlotWidget):
 
 class MainWindow(QtWidgets.QMainWindow):
 
-    def __init__(self, pipein=None, pipeout=None, buffer=None, rois=None):
+    def __init__(self, pipein=None, pipeout=None, cbuffer=None, dbuffer=None, rois=None):
         self.app = QtWidgets.QApplication([])
         QtWidgets.QMainWindow.__init__(self, flags=QtCore.Qt.Window)
         ### Set values
         self.pipein = pipein
         self.pipeout = pipeout
-        global Buffer
-        self.buffer = buffer
-        Buffer = buffer
+        global cBuffer, dBuffer
+        self.cbuffer = cbuffer
+        cBuffer = cbuffer
+        self.dbuffer = dbuffer
+        dBuffer = dbuffer
         global ROIs
         self.ROIs = rois
         ROIs = rois
 
-        buffer.initialize()
+        cbuffer.initialize()
+        dbuffer.initialize()
 
-        self.resize(1300, 1000)
+        self.resize(1600, 1000)
         self.move(50, 50)
 
         ### Set up central widget

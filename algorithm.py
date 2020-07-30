@@ -6,8 +6,8 @@ import helper
 
 class EyePosDetectRoutine:
 
-    def __init__(self, buffer, ROIs, res_x, res_y):
-        self.buffer = buffer
+    def __init__(self, cbuffer, ROIs, res_x, res_y):
+        self.cbuffer = cbuffer
         self.ROIs = ROIs
 
         ### Set up shared variables
@@ -210,8 +210,8 @@ class EyePosDetectRoutine:
         #print(extractedRects)
 
         ### Update buffer (Always set)
-        self.buffer.extracted_rects = newRect
+        self.cbuffer.extracted_rects = newRect
 
-        self.buffer.le_pos = eyePos[0] / (2 * np.pi) * 360
-        self.buffer.re_pos = eyePos[1] / (2 * np.pi) * 360
+        self.cbuffer.le_pos = eyePos[0] / (2 * np.pi) * 360
+        self.cbuffer.re_pos = eyePos[1] / (2 * np.pi) * 360
 
