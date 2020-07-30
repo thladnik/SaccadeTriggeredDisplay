@@ -389,6 +389,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.in_panel.sactrig.thresh.setValue(20.0)
         self.in_panel.sactrig.layout().addWidget(self.in_panel.sactrig.thresh, 1, 1)
 
+        self.in_panel.btn_recording = QtWidgets.QPushButton('Start Recording')
+        self.in_panel.btn_recording.clicked.connect(self.toggleRecording)
+        self.in_panel.layout().addWidget(self.in_panel.btn_recording)
+        self.record = False
 
         ### Add spacer
         vSpacer = QtWidgets.QSpacerItem(1,1,QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding)
@@ -407,6 +411,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.show()
         self.app.exec_()
+
+    def toggleRecording(self):
+        self.pipeout.send([50])
+        ### Recording? -> Stop
+        if self.record:
+            self.record = not(self.record)
+            self.in_panel.btn_recording.setText('Start recording')
+            self.in_panel.ctrl.setEnabled(True)
+            self.in_panel.sactrig.setEnabled(True)
+        ### Not recording? -> Start
+        else:
+            self.record = not(self.record)
+            self.in_panel.btn_recording.setText('Stop recording')
+            self.in_panel.ctrl.setEnabled(False)
+            self.in_panel.sactrig.setEnabled(False)
 
     def closeEvent(self, evt):
         self.pipeout.send([99])

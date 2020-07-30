@@ -16,6 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program. If not, see <http://www.gnu.org/licenses/>.
 """
 
+import h5py
 import tisgrabber as IC
 import numpy as np
 import time
@@ -24,6 +25,7 @@ import multiprocessing as mp
 import ctypes
 import cv2
 import pyfirmata
+from scipy.io import savemat
 
 import algorithm
 import gui
@@ -291,6 +293,57 @@ def handleComm():
     elif msg[0] == 22:
         print('Set flash delay to {}ms'.format(msg[1] * 1000))
         flash_delay = msg[1]
+    elif msg[0] == 50:
+        toggleRecording()
+    else:
+        print('Unknown comm code {}'.format(msg))
+
+
+def toggleRecording():
+    global file, filename
+    ## Open file
+    if file is None:
+        filename = time.strftime('%Y-%m-%d-%H-%M-%S')
+        global flash_delay, flash_dur, sacc_trigger_mode, sacc_diff_threshold
+        file = h5py.File('{}.hdf5'.format(filename), 'w')
+        file.attrs['flash_delay'] = flash_delay
+        file.attrs['flash_duration'] = flash_dur
+        file.attrs['saccade_trigger_mode'] = sacc_trigger_mode
+        file.attrs['saccade_trigger_threshold'] = sacc_diff_threshold
+
+        print('Start recordingto file {}'.format(file.filename))
+    else:
+        print('Stop recording')
+        file.close()
+
+        ### Export
+        print('Exporting file {}.hdf5 to {}.mat'.format(filename, filename))
+        file = h5py.File('{}.hdf5'.format(filename), 'r')
+        data = {key:value for key, value in file.attrs.items()}
+        data.update({key:value[:] for key, value in file.items()})
+        savemat('{}.mat'.format(filename), data)
+
+        file.close()
+
+        file = None
+        filename = None
+
+def appendData(key, value):
+    global file
+    if file is None:
+        return
+
+    if not(key in file):
+        file.create_dataset(key,
+                            shape=(0,1),
+                            dtype=type(value),
+                            maxshape=(None,1),
+                            chunks=(100,1)
+                            )
+    dset = file[key]
+
+    dset.resize((dset.shape[0]+1, *dset.shape[1:]))
+    dset[-1] = value
 
 if __name__ == '__main__':
 
@@ -366,6 +419,9 @@ if __name__ == '__main__':
         target_fps = None
         running = True
 
+        file = None
+        filename = None
+
         ### Wait for gui to set parameters
         while flash_delay is None \
                 or flash_delay is None \
@@ -430,6 +486,12 @@ if __name__ == '__main__':
                 ### Set new last ctime
                 last_ctime = t
 
+                ### Save to file
+                appendData('c_time',cbuffer.time)
+                appendData('c_le_pos',cbuffer.le_pos)
+                appendData('c_re_pos',cbuffer.re_pos)
+                appendData('c_trigger_sig',cbuffer.trigger_sig)
+
                 ### Advance buffer
                 cbuffer.next()
 
@@ -452,6 +514,10 @@ if __name__ == '__main__':
             ### Flash
             dbuffer.time = t
             dbuffer.flash_level = int(flash)
+
+            ### Save to file
+            appendData('d_time', dbuffer.time)
+            appendData('d_flash_level', dbuffer.flash_level)
 
             ### Set new last dtime
             last_dtime = t
