@@ -370,21 +370,34 @@ class MainWindow(QtWidgets.QMainWindow):
         # set
         self.in_panel.stim.flash_delay.setValue(50.0)
         self.in_panel.stim.layout().addWidget(self.in_panel.stim.flash_delay, 1, 1)
-        
+
+        ## Flash intensity
+        self.in_panel.stim.layout().addWidget(QtWidgets.QLabel('Flash intensity [au]'), 2, 0)
+        self.in_panel.stim.flash_intensity = QtWidgets.QDoubleSpinBox()
+        self.in_panel.stim.flash_intensity.setMinimum(0.0)
+        self.in_panel.stim.flash_intensity.setMaximum(1.0)
+        self.in_panel.stim.flash_intensity.setSingleStep(0.01)
+        # connect
+        self.in_panel.stim.flash_intensity.valueChanged.connect(
+            lambda: self.pipeout.send([23, self.in_panel.stim.flash_intensity.value()]))
+        # set
+        self.in_panel.stim.flash_intensity.setValue(0.5)
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.flash_intensity, 2, 1)
+
         ## Trigger stimulation
         self.in_panel.stim.btn_trigger = QtWidgets.QPushButton('Trigger')
         self.in_panel.stim.btn_trigger.clicked.connect(lambda: self.pipeout.send([61]))
-        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_trigger, 2, 0, 1, 2)
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_trigger, 3, 0, 1, 2)
         
         ## Start stimulation
         self.in_panel.stim.btn_start = QtWidgets.QPushButton('Start')
         self.in_panel.stim.btn_start.clicked.connect(lambda: self.pipeout.send([62]))
-        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_start, 3, 0, 1, 2)
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_start, 4, 0, 1, 2)
         
         ## Start stimulation
         self.in_panel.stim.btn_stop = QtWidgets.QPushButton('Stop')
         self.in_panel.stim.btn_stop.clicked.connect(lambda: self.pipeout.send([63]))
-        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_stop, 4, 0, 1, 2)
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_stop, 5, 0, 1, 2)
 
 
         ### Start recording
@@ -418,13 +431,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.record = not(self.record)
             self.in_panel.btn_recording.setText('Start recording')
             self.in_panel.ctrl.setEnabled(True)
-            self.in_panel.sactrig.setEnabled(True)
         ### Not recording? -> Start
         else:
             self.record = not(self.record)
             self.in_panel.btn_recording.setText('Stop recording')
             self.in_panel.ctrl.setEnabled(False)
-            self.in_panel.sactrig.setEnabled(False)
 
     def closeEvent(self, evt):
         self.pipeout.send([99])

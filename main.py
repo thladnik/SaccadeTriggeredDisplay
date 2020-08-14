@@ -267,7 +267,7 @@ def handleComm():
         return
 
     global running, sacc_trigger_mode, sacc_diff_threshold, target_fps, \
-        flash_delay, flash_dur, trigger, flash_start, t, flash
+        flash_delay, flash_dur, trigger, flash_start, flash, flash_intensity
 
     msg = pipein.recv()
 
@@ -288,6 +288,9 @@ def handleComm():
     elif msg[0] == 22:
         print('Set flash delay to {}ms'.format(msg[1] * 1000))
         flash_delay = msg[1]
+    elif msg[0] == 23:
+        print('Set flash intensity to {:.0f}%'.format(msg[1] * 100))
+        flash_intensity = msg[1]
     elif msg[0] == 50:
         toggleRecording()
     elif msg[0] == 61:
@@ -384,7 +387,7 @@ if __name__ == '__main__':
         # Display
         dbuffer = RingBuffer(buffer_length=10**7)
         dbuffer.time = (BufferDTypes.float64, (1,))
-        dbuffer.flash_level = (BufferDTypes.uint8, (1,))
+        dbuffer.flash_level = (BufferDTypes.float64, (1,))
 
         ### Set up display (Arduino)
         board = pyfirmata.Arduino('COM3')
@@ -408,7 +411,7 @@ if __name__ == '__main__':
         detector = algorithm.EyePosDetectRoutine(cbuffer, ROIs, camera.res_x, camera.res_y)
 
         ### Set flash variables
-        continuous_flash = False
+        flash_intensity = None
         trigger = False
         flash = False
         setLEDs(flash)
@@ -430,6 +433,7 @@ if __name__ == '__main__':
 
         ### Wait for gui to set parameters
         while flash_delay is None \
+                or flash_intensity is None \
                 or flash_delay is None \
                 or target_fps is None:
             handleComm()
@@ -496,11 +500,11 @@ if __name__ == '__main__':
                 flash = not(flash)
                 flash_start = np.inf
 
-            setLEDs(flash)
+            setLEDs(float(flash) * flash_intensity)
 
             ### Flash
             dbuffer.time = t
-            dbuffer.flash_level = int(flash or continuous_flash)
+            dbuffer.flash_level = int(flash) * flash_intensity
 
             ### Save to file
             appendData('d_time', dbuffer.time)
