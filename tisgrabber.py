@@ -13,7 +13,7 @@ from enum import Enum
 
 import ctypes as C
 import os
-os.environ['PATH'] += ';{}'.format(os.path.join(os.getcwd(), 'lib', 'dll'))
+os.environ['PATH'] += ';{}'.format(os.path.join(os.getcwd()))
 import sys
 import numpy as np
 
