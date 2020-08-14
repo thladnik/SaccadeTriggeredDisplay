@@ -506,7 +506,7 @@ if __name__ == '__main__':
                 setLEDs(flash)
 
             ### Reset pins
-            if flash and t > (flash_start + flash_delay + flash_dur):
+            if flash and t > (flash_start + flash_dur):
                 flash = not(flash)
                 flash_start = np.inf
                 setLEDs(flash)
