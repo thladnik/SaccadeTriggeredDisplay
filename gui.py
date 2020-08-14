@@ -342,53 +342,52 @@ class MainWindow(QtWidgets.QMainWindow):
         # set
         self.in_panel.ctrl.cam_fps.setValue(30)
         self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.cam_fps, 2, 1)
+
+
+        ### Stimulation panel
+        self.in_panel.stim = QtWidgets.QGroupBox('Stimulation')
+        self.in_panel.stim.setLayout(QtWidgets.QGridLayout())
+        self.in_panel.layout().addWidget(self.in_panel.stim)
+        
         ## Flash duration
-        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Flash duration [ms]'), 3, 0)
-        self.in_panel.ctrl.flash_dur = QtWidgets.QDoubleSpinBox()
-        self.in_panel.ctrl.flash_dur.setMinimum(1)
-        self.in_panel.ctrl.flash_dur.setMaximum(5000.0)
+        self.in_panel.stim.layout().addWidget(QtWidgets.QLabel('Flash duration [s]'), 0, 0)
+        self.in_panel.stim.flash_dur = QtWidgets.QDoubleSpinBox()
+        self.in_panel.stim.flash_dur.setMinimum(1)
+        self.in_panel.stim.flash_dur.setMaximum(5000.0)
         # connect
-        self.in_panel.ctrl.flash_dur.valueChanged.connect(lambda: self.pipeout.send([21, self.in_panel.ctrl.flash_dur.value() / 1000]))
+        self.in_panel.stim.flash_dur.valueChanged.connect(lambda: self.pipeout.send([21, self.in_panel.stim.flash_dur.value()]))
         # set
-        self.in_panel.ctrl.flash_dur.setValue(100.0)
-        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.flash_dur, 3, 1)
+        self.in_panel.stim.flash_dur.setValue(3.0)
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.flash_dur, 0, 1)
+        
         ## Flash delay
-        self.in_panel.ctrl.layout().addWidget(QtWidgets.QLabel('Flash delay [ms]'), 4, 0)
-        self.in_panel.ctrl.flash_delay = QtWidgets.QDoubleSpinBox()
-        self.in_panel.ctrl.flash_delay.setMinimum(1)
-        self.in_panel.ctrl.flash_delay.setMaximum(5000.0)
+        self.in_panel.stim.layout().addWidget(QtWidgets.QLabel('Flash delay [ms]'), 1, 0)
+        self.in_panel.stim.flash_delay = QtWidgets.QDoubleSpinBox()
+        self.in_panel.stim.flash_delay.setMinimum(1)
+        self.in_panel.stim.flash_delay.setMaximum(5000.0)
         # connect
-        self.in_panel.ctrl.flash_delay.valueChanged.connect(lambda: self.pipeout.send([22, self.in_panel.ctrl.flash_delay.value() / 1000]))
+        self.in_panel.stim.flash_delay.valueChanged.connect(lambda: self.pipeout.send([22, self.in_panel.stim.flash_delay.value() / 1000]))
         # set
-        self.in_panel.ctrl.flash_delay.setValue(50.0)
-        self.in_panel.ctrl.layout().addWidget(self.in_panel.ctrl.flash_delay, 4, 1)
+        self.in_panel.stim.flash_delay.setValue(50.0)
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.flash_delay, 1, 1)
+        
+        ## Trigger stimulation
+        self.in_panel.stim.btn_trigger = QtWidgets.QPushButton('Trigger')
+        self.in_panel.stim.btn_trigger.clicked.connect(lambda: self.pipeout.send([61]))
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_trigger, 2, 0, 1, 2)
+        
+        ## Start stimulation
+        self.in_panel.stim.btn_start = QtWidgets.QPushButton('Start')
+        self.in_panel.stim.btn_start.clicked.connect(lambda: self.pipeout.send([62]))
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_start, 3, 0, 1, 2)
+        
+        ## Start stimulation
+        self.in_panel.stim.btn_stop = QtWidgets.QPushButton('Stop')
+        self.in_panel.stim.btn_stop.clicked.connect(lambda: self.pipeout.send([63]))
+        self.in_panel.stim.layout().addWidget(self.in_panel.stim.btn_stop, 4, 0, 1, 2)
 
 
-        ### Saccade trigger
-        self.in_panel.sactrig = QtWidgets.QGroupBox('Saccade trigger')
-        self.in_panel.sactrig.setLayout(QtWidgets.QGridLayout())
-        self.in_panel.layout().addWidget(self.in_panel.sactrig)
-
-        ## Mode
-        self.in_panel.sactrig.eye_mode = QtWidgets.QComboBox()
-        # connect
-        self.in_panel.sactrig.eye_mode.currentTextChanged.connect(lambda: self.pipeout.send([41, self.in_panel.sactrig.eye_mode.currentText()]))
-        # set
-        self.in_panel.sactrig.eye_mode.addItems(['left', 'right', 'both'])
-        self.in_panel.sactrig.layout().addWidget(QtWidgets.QLabel('Saccade trigger mode'), 0, 0)
-        self.in_panel.sactrig.layout().addWidget(self.in_panel.sactrig.eye_mode, 0, 1)
-
-        ## Position diff. threshold
-        self.in_panel.sactrig.layout().addWidget(QtWidgets.QLabel('dPosition threshold [deg]'), 1, 0)
-        self.in_panel.sactrig.thresh = QtWidgets.QDoubleSpinBox()
-        self.in_panel.sactrig.thresh.setMinimum(1)
-        self.in_panel.sactrig.thresh.setMaximum(100.0)
-        # connect
-        self.in_panel.sactrig.thresh.valueChanged.connect(lambda: self.pipeout.send([42, self.in_panel.sactrig.thresh.value()]))
-        # set
-        self.in_panel.sactrig.thresh.setValue(20.0)
-        self.in_panel.sactrig.layout().addWidget(self.in_panel.sactrig.thresh, 1, 1)
-
+        ### Start recording
         self.in_panel.btn_recording = QtWidgets.QPushButton('Start Recording')
         self.in_panel.btn_recording.clicked.connect(self.toggleRecording)
         self.in_panel.layout().addWidget(self.in_panel.btn_recording)

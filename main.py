@@ -266,18 +266,13 @@ def handleComm():
     if not(pipein.poll()):
         return
 
-    global running, sacc_trigger_mode, sacc_diff_threshold, target_fps, flash_delay, flash_dur
+    global running, sacc_trigger_mode, sacc_diff_threshold, target_fps, \
+        flash_delay, flash_dur, trigger, flash_start, t, flash
 
     msg = pipein.recv()
 
     if msg[0] == 99:
         running = False
-    elif msg[0] == 41:
-        print('Set saccade trigger mode to {}'.format(msg[1]))
-        sacc_trigger_mode = msg[1]
-    elif msg[0] == 42:
-        print('Set saccade trigger position difference threshold to {}'.format(msg[1]))
-        sacc_diff_threshold = msg[1]
     elif msg[0] == 31:
         print('Set camera exposure to {}ms'.format(msg[1]))
         camera.updateProperty(camera.exposure, msg[1])
@@ -295,6 +290,18 @@ def handleComm():
         flash_delay = msg[1]
     elif msg[0] == 50:
         toggleRecording()
+    elif msg[0] == 61:
+        print('Trigger set')
+        trigger = True
+    elif msg[0] == 62:
+        print('Flash started by user')
+        flash_start = np.inf
+        flash = True
+    elif msg[0] == 63:
+        print('Flash stopped by user')
+        flash_start = np.inf
+        flash = False
+
     else:
         print('Unknown comm code {}'.format(msg))
 
@@ -382,10 +389,7 @@ if __name__ == '__main__':
         ### Set up display (Arduino)
         board = pyfirmata.Arduino('COM3')
         pins = dict()
-        pins[0] = board.get_pin('d:6:o')
-        pins[1] = board.get_pin('d:7:o')
-        pins[2] = board.get_pin('d:8:o')
-        pins[3] = board.get_pin('d:9:o')
+        pins[0] = board.get_pin('d:3:p')
 
         ### Set up and start GUI process
         guip = mp.Process(target=gui.MainWindow, name='GUI',
@@ -404,6 +408,8 @@ if __name__ == '__main__':
         detector = algorithm.EyePosDetectRoutine(cbuffer, ROIs, camera.res_x, camera.res_y)
 
         ### Set flash variables
+        continuous_flash = False
+        trigger = False
         flash = False
         setLEDs(flash)
 
@@ -425,8 +431,6 @@ if __name__ == '__main__':
         ### Wait for gui to set parameters
         while flash_delay is None \
                 or flash_delay is None \
-                or sacc_diff_threshold is None \
-                or sacc_trigger_mode is None \
                 or target_fps is None:
             handleComm()
 
@@ -456,28 +460,9 @@ if __name__ == '__main__':
                 ### Do calculation
                 eyePos = detector._compute(frame)
 
-                ### AFTER calculation: fetch current positions
-                le_pos_cur = cbuffer.le_pos
-                re_pos_cur = cbuffer.re_pos
-
-                ### Fetch previous positions
-                idcs, le_pos_last = cbuffer.read('le_pos')
-                _, re_pos_last = cbuffer.read('re_pos')
-
-                ### Determine trigger states
-                # LE
-                if sacc_trigger_mode in ['left', 'both']:
-                    le_trigger = np.abs(le_pos_cur - le_pos_last) > sacc_diff_threshold
-                else:
-                    le_trigger = False
-                ## RE
-                if sacc_trigger_mode in ['right', 'both']:
-                    re_trigger = np.abs(re_pos_cur - re_pos_last) > sacc_diff_threshold
-                else:
-                    re_trigger = False
-
                 ### Trigger
-                if not(flash) and (le_trigger or re_trigger):
+                if not(flash) and trigger:
+                    trigger = not(trigger)
                     flash_start = t + flash_delay
                     cbuffer.trigger_sig = 1
                 else:
@@ -501,19 +486,21 @@ if __name__ == '__main__':
 
             ### Start flash
             if not(flash) and flash_start <= t:
+                print('Flash start')
                 ### Set pins
                 flash = not(flash)
-                setLEDs(flash)
 
             ### Reset pins
-            if flash and t > (flash_start + flash_delay + flash_dur):
+            if flash and t > (flash_start + flash_dur):
+                print('Flash stop')
                 flash = not(flash)
                 flash_start = np.inf
-                setLEDs(flash)
+
+            setLEDs(flash)
 
             ### Flash
             dbuffer.time = t
-            dbuffer.flash_level = int(flash)
+            dbuffer.flash_level = int(flash or continuous_flash)
 
             ### Save to file
             appendData('d_time', dbuffer.time)
