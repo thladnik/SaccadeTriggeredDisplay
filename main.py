@@ -24,8 +24,10 @@ import wres
 import multiprocessing as mp
 import ctypes
 import cv2
+import pickle
 import pyfirmata
 from scipy.io import savemat
+import tifffile as tif
 
 import algorithm
 import gui
@@ -304,13 +306,17 @@ def handleComm():
         print('Flash stopped by user')
         flash_start = np.inf
         flash = False
+    elif msg[0] == 71:
+        print('Toggle frame capture setting to {}'.format(bool(msg[1])))
+        global save_frames
+        save_frames = bool(msg[1])
 
     else:
         print('Unknown comm code {}'.format(msg))
 
 
 def toggleRecording():
-    global file, filename
+    global file, filename, save_frames
     ## Open file
     if file is None:
         filename = time.strftime('%Y-%m-%d-%H-%M-%S')
@@ -328,8 +334,18 @@ def toggleRecording():
         print('Exporting file {}.hdf5 to {}.mat'.format(filename, filename))
         file = h5py.File('{}.hdf5'.format(filename), 'r')
         data = {key:value for key, value in file.attrs.items()}
-        data.update({key:value[:] for key, value in file.items()})
+        data.update({key:value[:] for key, value in file.items() if key != 'c_frame'})
+
+        ## Save to mat
         savemat('{}.mat'.format(filename), data)
+        ## Save to pickle
+        with open('{}.pickle'.format(filename), 'wb') as f_pkl:
+            pickle.dump(data, f_pkl)
+        ## (Optionally) save frames to tif
+        if save_frames:
+            #import IPython
+            #IPython.embed()
+            tif.imwrite('{}.tif'.format(filename), file['c_frame'][:])
 
         file.close()
 
@@ -342,12 +358,15 @@ def appendData(key, value):
         return
 
     if not(key in file):
+        dshape = (1,) if not(isinstance(value, np.ndarray)) else value.shape
+        dtype = type(value) if not(isinstance(value, np.ndarray)) else value.dtype
         file.create_dataset(key,
-                            shape=(0,1),
-                            dtype=type(value),
-                            maxshape=(None,1),
-                            chunks=(100,1)
+                            shape=(0,*dshape),
+                            dtype=dtype,
+                            maxshape=(None,*dshape),
+                            chunks=(100,*dshape)
                             )
+
     dset = file[key]
 
     dset.resize((dset.shape[0]+1, *dset.shape[1:]))
@@ -388,7 +407,7 @@ if __name__ == '__main__':
         dbuffer.flash_level = (BufferDTypes.float64, (1,))
 
         ### Set up display (Arduino)
-        board = pyfirmata.Arduino('COM3')
+        board = pyfirmata.Arduino('COM4')
         pins = dict()
         pins[0] = board.get_pin('d:3:p')
 
@@ -418,6 +437,7 @@ if __name__ == '__main__':
         flash_dur = None
         flash_delay = None
 
+        save_frames = True
         ### Set trigger variables:
         sacc_trigger_mode = None
         sacc_diff_threshold = None
@@ -460,7 +480,7 @@ if __name__ == '__main__':
                 cbuffer.time = t
 
                 ### Do calculation
-                eyePos = detector._compute(frame)
+                eyePos = detector._compute(np.copy(frame))
 
                 ### Trigger
                 if not(flash) and trigger:
@@ -475,6 +495,8 @@ if __name__ == '__main__':
 
                 ### Save to file
                 appendData('c_time',cbuffer.time)
+                if save_frames:
+                    appendData('c_frame',cbuffer.frame)
                 appendData('c_le_pos',cbuffer.le_pos)
                 appendData('c_re_pos',cbuffer.re_pos)
                 appendData('c_trigger_sig',cbuffer.trigger_sig)

@@ -401,6 +401,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
         ### Start recording
+        self.in_panel.check_save_frames = QtWidgets.QCheckBox('Capture frames')
+        self.in_panel.check_save_frames.clicked.connect(
+            lambda: self.pipeout.send([71, self.in_panel.check_save_frames.checkState()])
+        )
+        self.in_panel.layout().addWidget(self.in_panel.check_save_frames)
+
+        ### Start recording
         self.in_panel.btn_recording = QtWidgets.QPushButton('Start Recording')
         self.in_panel.btn_recording.clicked.connect(self.toggleRecording)
         self.in_panel.layout().addWidget(self.in_panel.btn_recording)
@@ -431,11 +438,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.record = not(self.record)
             self.in_panel.btn_recording.setText('Start recording')
             self.in_panel.ctrl.setEnabled(True)
+            self.in_panel.check_save_frames.setEnabled(True)
         ### Not recording? -> Start
         else:
             self.record = not(self.record)
             self.in_panel.btn_recording.setText('Stop recording')
             self.in_panel.ctrl.setEnabled(False)
+            self.in_panel.check_save_frames.setEnabled(False)
 
     def closeEvent(self, evt):
         self.pipeout.send([99])
