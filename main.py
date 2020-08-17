@@ -318,8 +318,6 @@ def toggleRecording():
         file = h5py.File('{}.hdf5'.format(filename), 'w')
         file.attrs['flash_delay'] = flash_delay
         file.attrs['flash_duration'] = flash_dur
-        file.attrs['saccade_trigger_mode'] = sacc_trigger_mode
-        file.attrs['saccade_trigger_threshold'] = sacc_diff_threshold
 
         print('Start recordingto file {}'.format(file.filename))
     else:
