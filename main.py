@@ -535,3 +535,5 @@ if __name__ == '__main__':
 
             ### Advance buffer
             dbuffer.next()
+
+        guip.terminate()
