@@ -360,11 +360,12 @@ def appendData(key, value):
     if not(key in file):
         dshape = (1,) if not(isinstance(value, np.ndarray)) else value.shape
         dtype = type(value) if not(isinstance(value, np.ndarray)) else value.dtype
+        csize = 100 if not(key == 'c_frame') else 1
         file.create_dataset(key,
                             shape=(0,*dshape),
                             dtype=dtype,
                             maxshape=(None,*dshape),
-                            chunks=(100,*dshape)
+                            chunks=(csize,*dshape)
                             )
 
     dset = file[key]
